@@ -110,9 +110,20 @@ def render_board(display_grid, level_complete=False):
     return html
 
 
-# Add Ghost style
+# Add Ghost style and Hidden Utilities
 CUSTOM_CSS += """
 .cell-6 { background: #9b59b6; opacity: 0.5; border-radius: 50%; transform: scale(0.6); box-shadow: 0 0 10px #9b59b6; }
+.visually-hidden { 
+    position: absolute !important; 
+    width: 1px !important; 
+    height: 1px !important; 
+    padding: 0 !important; 
+    margin: -1px !important; 
+    overflow: hidden !important; 
+    clip: rect(0,0,0,0) !important; 
+    white-space: nowrap !important; 
+    border: 0 !important;
+}
 """
 
 def render_leaderboard(data):
@@ -173,13 +184,14 @@ def create_app():
                     
                     with gr.Column(scale=1):
                         gr.Markdown("### Controls")
-                        with gr.Row():
-                            up_btn = gr.Button("⬆️", elem_id="btn-up")
-                        with gr.Row():
-                            left_btn = gr.Button("⬅️", elem_id="btn-left")
-                            right_btn = gr.Button("➡️", elem_id="btn-right")
-                        with gr.Row():
-                            down_btn = gr.Button("⬇️", elem_id="btn-down")
+                        gr.Markdown("*(Use Arrow Keys or WASD to Move)*")
+                        
+                        # Hidden Buttons for JS Hook
+                        with gr.Row(visible=True): # Container must be visible for buttons to render in DOM
+                            up_btn = gr.Button("⬆️", elem_id="btn-up", elem_classes=["visually-hidden"])
+                            left_btn = gr.Button("⬅️", elem_id="btn-left", elem_classes=["visually-hidden"])
+                            right_btn = gr.Button("➡️", elem_id="btn-right", elem_classes=["visually-hidden"])
+                            down_btn = gr.Button("⬇️", elem_id="btn-down", elem_classes=["visually-hidden"])
                         
                         with gr.Group():
                             next_level_btn = gr.Button("🚀 Start / Next Level", variant="primary")
