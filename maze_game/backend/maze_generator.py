@@ -10,27 +10,10 @@ class MazeGenerator:
         self.goal = (width - 1, height - 1)
 
     def generate_maze(self):
-        # 1 = Wall, 0 = Path, S = Start, G = Goal
-        # Initialize grid with all walls
+        # 1 = Wall, 0 = Path
         self.grid = [[1 for _ in range(self.width)] for _ in range(self.height)]
 
-        # Recursive Backtracking algorithm
-        def get_neighbors(r, c):
-            neighbors = []
-            if r > 1: neighbors.append((r - 2, c))
-            if r < self.height - 2: neighbors.append((r + 2, c))
-            if c > 1: neighbors.append((r, c - 2))
-            if c < self.width - 2: neighbors.append((r, c + 2))
-            return neighbors
-
-        # Start from (0,0) - forcing odd coordinates to be paths usually helps in this alg, 
-        # but let's adjust for 0-indexed strict grid.
-        # Actually standard logic: 
-        # Grid dimensions should ideally be odd for "rooms" and "walls" structure in strict recursive backtracking.
-        # If input is even, we might have a thick wall at the edge. Let's force odd for internal logic if needed or handle boundary.
-        # Let's simplify: Start at (0,0). Mark as 0. 
-        # Keep a frontier or stick to finding unvisited neighbors 2 steps away.
-        
+        # Recursive Backtracking
         stack = [(0, 0)]
         self.grid[0][0] = 0
         
@@ -56,46 +39,67 @@ class MazeGenerator:
             else:
                 stack.pop()
 
-        # Ensure Start and Goal are open and set
+        # Ensure Start and Goal
         self.grid[0][0] = 'S'
-        # Force goal to be reachable if it ended up isolated (unlikely with this algo but possible if even sized)
-        # Actually with even sizes, the bottom-right might be a wall.
-        # Let's clean up goal position. A simple way is to find the nearest 0 to (h-1, w-1) or just set (h-1, w-1) and neighbors to 0.
-        
         self.grid[self.height - 1][self.width - 1] = 'G'
         
-        # Connect goal if it's currently a wall (simple validity fix)
+        # Ensure Goal reachability if blocked by wall on even grid
         if self.grid[self.height - 1][self.width - 2] == 1 and self.grid[self.height - 2][self.width - 1] == 1:
              self.grid[self.height - 1][self.width - 2] = 0
-
-        # Also just in case the node itself was a wall (it was init as 1)
-        # The algo usually visits "even" nodes (0,0), (0,2)... if we step by 2.
-        # If width is even, width-1 is odd. 
-        # Let's just ensure path connectivity by clearing a small area around goal if needed?
-        # A clearer way: perform a check or just carve a path to the nearest open cell.
-        # For this prototype, I'll allow walls to be broken to ensure the goal is open.
         
         return self.grid
-
-    def get_neighbors(self, node):
-        r, c = node
-        neighbors = []
-        directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
-        for dr, dc in directions:
-            nr, nc = r + dr, c + dc
-            if 0 <= nr < self.height and 0 <= nc < self.width:
-                if self.grid[nr][nc] != 1:
-                    neighbors.append((nr, nc))
-        return neighbors
-
-def generate_maze_by_difficulty(difficulty):
-    if difficulty == "Easy":
-        gen = MazeGenerator(11, 11)
-    elif difficulty == "Medium":
-        gen = MazeGenerator(21, 21)
-    elif difficulty == "Hard":
-        gen = MazeGenerator(31, 31)
-    else:
-        gen = MazeGenerator(15, 15)
     
-    return gen.generate_maze(), gen
+    def place_items(self, level):
+        """
+        Place Traps: T (Spike), F (Fog), X (Time)
+        Place Powerups: P (Shield), B (Speed), V (Vision)
+        """
+        # Calculate item counts based on level
+        # Traps increase with level
+        num_traps = int(level * 1.5) + 2
+        # Powerups slightly decrease or stay constant
+        num_powerups = max(2, 5 - int(level * 0.2))
+        
+        empty_cells = []
+        for r in range(self.height):
+            for c in range(self.width):
+                if self.grid[r][c] == 0: # Only place on paths
+                    # Don't place too close to start (grace zone)
+                    if (r + c) > 3: 
+                        empty_cells.append((r, c))
+                        
+        random.shuffle(empty_cells)
+        
+        traps = ['T', 'F', 'X']
+        powerups = ['P', 'B', 'V']
+        
+        # Place Traps
+        for _ in range(min(num_traps, len(empty_cells))):
+            r, c = empty_cells.pop()
+            # Distribution: Level 1-3 mostly simple, 4+ complex
+            if level <= 3:
+                trap_type = 'X' # Time trap is mild
+            else:
+                trap_type = random.choice(traps)
+            
+            self.grid[r][c] = trap_type
+
+        # Place Powerups
+        for _ in range(min(num_powerups, len(empty_cells))):
+            r, c = empty_cells.pop()
+            p_type = random.choice(powerups)
+            self.grid[r][c] = p_type
+            
+        return self.grid
+
+def generate_level(level):
+    # Dynamic size based on level
+    # Level 1: 11x11
+    # Level 5: 19x19
+    # Level 10: 29x29
+    size = 11 + (level - 1) * 2
+    if size > 31: size = 31 # Cap size
+    
+    gen = MazeGenerator(size, size)
+    gen.generate_maze()
+    return gen.place_items(level)

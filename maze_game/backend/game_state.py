@@ -1,6 +1,6 @@
 import time
-from .maze_generator import generate_maze_by_difficulty
-from .solvers import solve_astar
+from .maze_generator import generate_level
+from .solvers import solve_astar, solve_bfs, solve_dfs
 
 class GameState:
     def __init__(self):
@@ -8,21 +8,51 @@ class GameState:
         self.player_pos = (0, 0)
         self.start_pos = (0, 0)
         self.goal_pos = (0, 0)
-        self.moves = 0
-        self.start_time = 0
-        self.history = []
-        self.difficulty = "Medium"
-        self.is_game_over = False
-        self.path_for_display = [] # For AI paths or hints
-        self.score = 0
         
-    def new_game(self, difficulty="Medium"):
-        self.difficulty = difficulty
-        self.grid, generator = generate_maze_by_difficulty(difficulty)
+        # Progression
+        self.current_level = 1
+        self.moves = 0
+        self.total_score = 0
+        self.start_time = 0
+        self.elapsed_final = 0
+        self.is_game_over = False
+        
+        # State Flags
+        self.fog_moves_remaining = 0
+        self.has_shield = False
+        self.speed_boost_moves = 0
+        self.vision_moves = 0
+        
+        # Item Lists (Collected) for UI
+        self.inventory = [] 
+        
+        self.path_for_display = [] 
+        
+    def start_new_game(self):
+        self.current_level = 1
+        self.total_score = 0
+        self.inventory = []
+        self.load_level(1)
+        return self.get_display_grid()
+
+    def load_level(self, level):
+        self.grid = generate_level(level)
         self.height = len(self.grid)
         self.width = len(self.grid[0])
+        self.current_level = level
         
-        # Find start and goal explicitly to be safe
+        # Reset Level State
+        self.moves = 0
+        self.start_time = time.time()
+        self.path_for_display = []
+        self.is_game_over = False
+        self.fog_moves_remaining = 0
+        self.speed_boost_moves = 0
+        self.vision_moves = 0
+        # Preserve inventory? User request didn't specify, but usually yes for "game".
+        # Let's keep shield/inventory across levels.
+        
+        # Find start/goal
         for r in range(self.height):
             for c in range(self.width):
                 if self.grid[r][c] == 'S':
@@ -31,18 +61,16 @@ class GameState:
                     self.goal_pos = (r, c)
         
         self.player_pos = self.start_pos
-        self.moves = 0
-        self.start_time = time.time()
-        self.history = [self.player_pos]
-        self.is_game_over = False
-        self.path_for_display = []
-        self.score = 0
-        
-        return self.get_display_grid()
+
+    def next_level(self):
+        self.total_score += self.calculate_score()
+        self.current_level += 1
+        self.load_level(self.current_level)
+        return f"Level {self.current_level}", self.get_display_grid()
 
     def move_player(self, direction):
         if self.is_game_over:
-            return "Game Over!", self.get_display_grid()
+            return "Level Complete!", self.get_display_grid()
 
         r, c = self.player_pos
         dr, dc = 0, 0
@@ -54,42 +82,120 @@ class GameState:
         
         nr, nc = r + dr, c + dc
         
+        msg = "Moving..."
+        
         if 0 <= nr < self.height and 0 <= nc < self.width:
-            if self.grid[nr][nc] != 1:
-                self.player_pos = (nr, nc)
-                self.moves += 1
-                self.history.append(self.player_pos)
-                
-                if self.player_pos == self.goal_pos:
-                    self.is_game_over = True
-                    self.calculate_score()
-                    return "Goal Reached! Score: " + str(self.score), self.get_display_grid()
-                
-                return "Moving...", self.get_display_grid()
-            else:
+            cell = self.grid[nr][nc]
+            
+            if cell == 1: # Wall
                 return "Blocked!", self.get_display_grid()
+                
+            # Valid Move
+            self.player_pos = (nr, nc)
+            self.moves += 1
+            
+            # Decrement Effects
+            if self.fog_moves_remaining > 0: self.fog_moves_remaining -= 1
+            if self.speed_boost_moves > 0: self.speed_boost_moves -= 1
+            if self.vision_moves > 0: self.vision_moves -= 1
+            
+            # Handle Interaction
+            if cell == 'G':
+                self.is_game_over = True
+                msg = "Goal Reached! Click Next Level."
+            elif cell == 'T': # Spike
+                if self.has_shield:
+                    self.has_shield = False
+                    self.inventory.remove('Shield')
+                    self.grid[nr][nc] = 0 # Remove trap
+                    msg = "Shield blocked Spike!"
+                else:
+                    self.player_pos = self.start_pos
+                    self.total_score -= 50
+                    msg = "SPIKE! Reset to Start."
+            elif cell == 'F': # Fog
+                if self.has_shield:
+                    self.has_shield = False
+                    self.inventory.remove('Shield')
+                    self.grid[nr][nc] = 0
+                    msg = "Shield blocked Fog!"
+                else:
+                    self.fog_moves_remaining = 10
+                    self.grid[nr][nc] = 0 # Remove after trigger
+                    msg = "FOG TRAP! Visibility reduced."
+            elif cell == 'X': # Time
+                if self.has_shield:
+                    self.has_shield = False
+                    self.inventory.remove('Shield')
+                    self.grid[nr][nc] = 0
+                    msg = "Shield blocked Time Trap!"
+                else:
+                    self.start_time -= 10 # Add 10s penalty (elapsed checks now-start, so decrease start to increase elapsed)
+                    self.grid[nr][nc] = 0
+                    msg = "TIME WARP! +10s penalty."
+            
+            elif cell == 'P': # Shield
+                self.has_shield = True
+                self.inventory.append('Shield')
+                self.grid[nr][nc] = 0
+                msg = "Got Shield!"
+            elif cell == 'B': # Speed
+                self.speed_boost_moves = 10
+                self.grid[nr][nc] = 0
+                msg = "Speed Boost!"
+            elif cell == 'V': # Vision
+                self.vision_moves = 10
+                self.solve("A*") # Auto trigger hint
+                self.grid[nr][nc] = 0
+                msg = "AI Vision Active!"
+                
+            return msg, self.get_display_grid()
         
         return "Boundary!", self.get_display_grid()
 
     def get_display_grid(self):
-        # Return a grid suitable for frontend visualization
-        # We can map integers/strings to colors in frontend or return a color matrix here
-        # Return a list of lists of colors or codes
-        # Codes: 0=Path(white/light), 1=Wall(black), 2=Player(blue), 3=Start(green), 4=Goal(red), 5=Path(yellow)
+        # MAPPINGS
+        # 0=Path -> 0
+        # 1=Wall -> 1
+        # Player -> 2
+        # Start -> 3
+        # Goal -> 4
+        # Hint -> 5
+        # T -> 10, F -> 11, X -> 12
+        # P -> 20, B -> 21, V -> 22
+        # FOG -> 99
         
-        display = [[0 if cell != 1 else 1 for cell in row] for row in self.grid]
+        display = []
         
-        # Mark Start and Goal in base layer if not overridden
-        sx, sy = self.start_pos
-        gx, gy = self.goal_pos
-        display[sx][sy] = 3
-        display[gx][gy] = 4
-        
-        # Mark AI Path
-        for r, c in self.path_for_display:
-            if display[r][c] not in [3, 4]: # Don't overwrite Start/Goal
-                display[r][c] = 5 # Yellow path
+        for r in range(self.height):
+            row_data = []
+            for c in range(self.width):
+                # FOG LOGIC
+                if self.fog_moves_remaining > 0:
+                    dist = abs(r - self.player_pos[0]) + abs(c - self.player_pos[1])
+                    if dist > 2:
+                        row_data.append(99) # Fogged
+                        continue
                 
+                cell = self.grid[r][c]
+                code = 0
+                if cell == 1: code = 1
+                elif cell == 'S': code = 3
+                elif cell == 'G': code = 4
+                elif cell == 'T': code = 10
+                elif cell == 'F': code = 11
+                elif cell == 'X': code = 12
+                elif cell == 'P': code = 20
+                elif cell == 'B': code = 21
+                elif cell == 'V': code = 22
+                
+                # Overlay Hint
+                if (r,c) in self.path_for_display and code == 0:
+                   code = 5
+                   
+                row_data.append(code)
+            display.append(row_data)
+
         # Mark Player
         pr, pc = self.player_pos
         display[pr][pc] = 2
@@ -97,37 +203,43 @@ class GameState:
         return display
 
     def calculate_score(self):
-        self.elapsed_final = time.time() - self.start_time
-        # Simple score
+        elapsed = time.time() - self.start_time
+        # Speed boost reduces effective time for score calc? 
+        # Actually logic says "Reduces time cost for next N moves"
+        # Since I didn't implement move duration limits, let's say steps don't count towards score penalty?
+        # Let's keep it simple: Raw time.
+        
         optimal_solution = solve_astar(self.grid, self.start_pos, self.goal_pos)
         optimal_len = len(optimal_solution) if optimal_solution else self.moves
         
         efficiency = (optimal_len / max(1, self.moves)) * 100
-        time_penalty = int(self.elapsed_final) * 1
+        time_penalty = int(elapsed) * 1
         
-        self.score = int(1000 * (efficiency/100) - time_penalty)
-        if self.score < 0: self.score = 0
+        level_score = int(1000 * (self.current_level * 0.5) * (efficiency/100) - time_penalty)
+        return max(0, level_score)
         
     def get_metrics(self):
         if self.is_game_over:
-             elapsed = int(self.elapsed_final)
+             elapsed = int(time.time() - self.start_time)
         else:
              elapsed = int(time.time() - self.start_time)
-             
-        return f"Moves: {self.moves} | Time: {elapsed}s | Score: {self.score}"
+        
+        # Current Level Score Prediction
+        curr_score = self.calculate_score()
+        items = " ".join(self.inventory) if self.inventory else "None"
+        
+        return f"Level: {self.current_level} | Items: {items} | Moves: {self.moves} | Time: {elapsed}s | Est. Score: {curr_score}"
 
     def solve(self, algorithm):
-        from .solvers import solve_bfs, solve_dfs, solve_astar
-        
         if algorithm == "BFS":
             path = solve_bfs(self.grid, self.player_pos, self.goal_pos)
         elif algorithm == "DFS":
             path = solve_dfs(self.grid, self.player_pos, self.goal_pos)
-        else: # A*
+        else:
             path = solve_astar(self.grid, self.player_pos, self.goal_pos)
             
         if path:
-            self.path_for_display = path[1:] # Exclude current pos to not color over player immediately
-            self.score -= 50 # Penalty for hint
-            return f"Path found with {algorithm} (Length: {len(path)})"
+            self.path_for_display = path[1:]
+            self.total_score -= 50 * self.current_level
+            return f"Path found {algorithm}"
         return "No path found!"
