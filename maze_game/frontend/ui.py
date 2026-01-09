@@ -156,7 +156,16 @@ def create_app():
                 msg = "New Game Started"
             return render_board(grid), game.get_metrics(), game, msg
 
-        next_level_btn.click(start_or_next, inputs=[state], outputs=[board_display, status_bar, state, game_msg])
+        def start_daily(game):
+            msg, grid = game.start_daily_challenge()
+            return render_board(grid), game.get_metrics(), game, msg
+
+        with gr.Row():
+             with gr.Column(scale=1):
+                 next_level_btn.click(start_or_next, inputs=[state], outputs=[board_display, status_bar, state, game_msg])
+             with gr.Column(scale=1):
+                 daily_btn = gr.Button("📅 Daily Challenge", variant="secondary")
+                 daily_btn.click(start_daily, inputs=[state], outputs=[board_display, status_bar, state, game_msg])
         
         def move(direction, game):
             msg, grid = game.move_player(direction)

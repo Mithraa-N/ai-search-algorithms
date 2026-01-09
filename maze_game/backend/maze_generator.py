@@ -1,13 +1,17 @@
 import random
 import heapq
+import datetime
 
 class MazeGenerator:
-    def __init__(self, width=20, height=20):
+    def __init__(self, width=20, height=20, seed=None):
         self.width = width
         self.height = height
         self.grid = []
         self.start = (0, 0)
         self.goal = (width - 1, height - 1)
+        self.seed = seed
+        # Use a local random instance for determinism
+        self.rng = random.Random(seed) if seed is not None else random.Random()
 
     def generate_maze(self):
         # 1 = Wall, 0 = Path
@@ -31,7 +35,7 @@ class MazeGenerator:
                         options.append((nr, nc, dr, dc))
             
             if options:
-                nr, nc, dr, dc = random.choice(options)
+                nr, nc, dr, dc = self.rng.choice(options)
                 # Knock down the wall between
                 self.grid[current_r + dr // 2][current_c + dc // 2] = 0
                 self.grid[nr][nc] = 0
@@ -68,7 +72,7 @@ class MazeGenerator:
                     if (r + c) > 3: 
                         empty_cells.append((r, c))
                         
-        random.shuffle(empty_cells)
+        self.rng.shuffle(empty_cells)
         
         traps = ['T', 'F', 'X']
         powerups = ['P', 'B', 'V']
@@ -80,26 +84,23 @@ class MazeGenerator:
             if level <= 3:
                 trap_type = 'X' # Time trap is mild
             else:
-                trap_type = random.choice(traps)
+                trap_type = self.rng.choice(traps)
             
             self.grid[r][c] = trap_type
 
         # Place Powerups
         for _ in range(min(num_powerups, len(empty_cells))):
             r, c = empty_cells.pop()
-            p_type = random.choice(powerups)
+            p_type = self.rng.choice(powerups)
             self.grid[r][c] = p_type
             
         return self.grid
 
-def generate_level(level):
+def generate_level(level, seed=None):
     # Dynamic size based on level
-    # Level 1: 11x11
-    # Level 5: 19x19
-    # Level 10: 29x29
     size = 11 + (level - 1) * 2
     if size > 31: size = 31 # Cap size
     
-    gen = MazeGenerator(size, size)
+    gen = MazeGenerator(size, size, seed=seed)
     gen.generate_maze()
     return gen.place_items(level)

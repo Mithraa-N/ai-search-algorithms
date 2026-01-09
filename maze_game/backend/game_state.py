@@ -1,4 +1,5 @@
 import time
+import datetime
 from .maze_generator import generate_level
 from .solvers import solve_astar, solve_bfs, solve_dfs
 
@@ -27,13 +28,52 @@ class GameState:
         self.inventory = [] 
         
         self.path_for_display = [] 
-        
+        self.mode = "Standard"
+
     def start_new_game(self):
+        self.mode = "Standard"
         self.current_level = 1
         self.total_score = 0
         self.inventory = []
+        self.hints_remaining = 999
         self.load_level(1)
         return self.get_display_grid()
+
+    def start_daily_challenge(self):
+        self.mode = "Daily"
+        date_str = datetime.date.today().isoformat()
+        # Seed based on date
+        self.current_level = 10 # Hard difficulty for daily
+        self.total_score = 0
+        self.inventory = []
+        self.hints_remaining = 3 # Limited hints
+        
+        # Load level with specific seed
+        self.grid = generate_level(self.current_level, seed=date_str)
+        
+        self.height = len(self.grid)
+        self.width = len(self.grid[0])
+        self.moves = 0
+        self.start_time = time.time()
+        self.path_for_display = []
+        self.is_game_over = False
+        self.fog_moves_remaining = 0
+        self.speed_boost_moves = 0
+        self.vision_moves = 0
+        
+        # Determine optimal for comparison now
+        self.daily_optimal = len(solve_astar(self.grid, (0,0), (self.height-1, self.width-1))) # approx
+        
+        # Find start/goal
+        for r in range(self.height):
+            for c in range(self.width):
+                if self.grid[r][c] == 'S':
+                    self.start_pos = (r, c)
+                elif self.grid[r][c] == 'G':
+                    self.goal_pos = (r, c)
+        
+        self.player_pos = self.start_pos
+        return f"Daily Challenge ({date_str}) Started!", self.get_display_grid()
 
     def load_level(self, level):
         self.grid = generate_level(level)
@@ -63,6 +103,9 @@ class GameState:
         self.player_pos = self.start_pos
 
     def next_level(self):
+        if self.mode == "Daily":
+            return "Challenge Complete. Check Score!", self.get_display_grid()
+            
         self.total_score += self.calculate_score()
         self.current_level += 1
         self.load_level(self.current_level)
@@ -70,7 +113,7 @@ class GameState:
 
     def move_player(self, direction):
         if self.is_game_over:
-            return "Level Complete!", self.get_display_grid()
+            return "Game Over!", self.get_display_grid()
 
         r, c = self.player_pos
         dr, dc = 0, 0
@@ -102,7 +145,11 @@ class GameState:
             # Handle Interaction
             if cell == 'G':
                 self.is_game_over = True
-                msg = "Goal Reached! Click Next Level."
+                if self.mode == "Daily":
+                    self.total_score = self.calculate_score()
+                    msg = f"DAILY COMPLETE! Score: {self.total_score}"
+                else:
+                    msg = "Goal Reached! Click Next Level."
             elif cell == 'T': # Spike
                 if self.has_shield:
                     self.has_shield = False
@@ -111,7 +158,9 @@ class GameState:
                     msg = "Shield blocked Spike!"
                 else:
                     self.player_pos = self.start_pos
-                    self.total_score -= 50
+                    # Higher penalty in daily?
+                    penalty = 100 if self.mode == "Daily" else 50
+                    self.total_score -= penalty
                     msg = "SPIKE! Reset to Start."
             elif cell == 'F': # Fog
                 if self.has_shield:
@@ -215,8 +264,13 @@ class GameState:
         efficiency = (optimal_len / max(1, self.moves)) * 100
         time_penalty = int(elapsed) * 1
         
-        level_score = int(1000 * (self.current_level * 0.5) * (efficiency/100) - time_penalty)
-        return max(0, level_score)
+        # Base score
+        base_score = 1000 * (self.current_level * 0.5)
+        if self.mode == "Daily":
+            base_score = 5000 # Fixed high base for daily
+        
+        level_score = int(base_score * (efficiency/100) - time_penalty)
+        return max(0, level_score) # Don't go below 0 for level but total can be negative? NO, keep 0 floor.
         
     def get_metrics(self):
         if self.is_game_over:
@@ -228,9 +282,24 @@ class GameState:
         curr_score = self.calculate_score()
         items = " ".join(self.inventory) if self.inventory else "None"
         
-        return f"Level: {self.current_level} | Items: {items} | Moves: {self.moves} | Time: {elapsed}s | Est. Score: {curr_score}"
+        mode_str = f"Mode: {self.mode}"
+        if self.mode == "Daily":
+            mode_str += f" | Hints: {self.hints_remaining}"
+            
+        return f"{mode_str} | Level: {self.current_level} | Items: {items} | Moves: {self.moves} | Time: {elapsed}s | Est. Score: {curr_score}"
 
     def solve(self, algorithm):
+        # Daily Restrictions
+        if self.mode == "Daily":
+            if self.hints_remaining <= 0:
+                return "No hints remaining in Daily Mode!"
+            self.hints_remaining -= 1
+            if algorithm != "Hint": # Force just path visualization if requested, but penalty applies
+                 # Ideally we don't allow "Solve" which usually means Auto-Play in some contexts. 
+                 # Here "Solve" just shows path. 
+                 # User Request: "AI auto-solve mode is disabled" -> Assuming the button won't autoplay but just show path.
+                 pass
+                 
         if algorithm == "BFS":
             path = solve_bfs(self.grid, self.player_pos, self.goal_pos)
         elif algorithm == "DFS":
@@ -240,6 +309,9 @@ class GameState:
             
         if path:
             self.path_for_display = path[1:]
-            self.total_score -= 50 * self.current_level
-            return f"Path found {algorithm}"
+            penalty = 50 * self.current_level
+            if self.mode == "Daily":
+                penalty = 500 # Heavy penalty
+            self.total_score -= penalty
+            return f"Path found {algorithm}. Penalty: {penalty}"
         return "No path found!"
