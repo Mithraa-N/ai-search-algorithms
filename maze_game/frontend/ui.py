@@ -113,16 +113,17 @@ def render_board(display_grid, level_complete=False):
 # Add Ghost style and Hidden Utilities
 CUSTOM_CSS += """
 .cell-6 { background: #9b59b6; opacity: 0.5; border-radius: 50%; transform: scale(0.6); box-shadow: 0 0 10px #9b59b6; }
-.visually-hidden { 
-    position: absolute !important; 
-    width: 1px !important; 
-    height: 1px !important; 
-    padding: 0 !important; 
-    margin: -1px !important; 
-    overflow: hidden !important; 
-    clip: rect(0,0,0,0) !important; 
-    white-space: nowrap !important; 
-    border: 0 !important;
+
+/* Hide buttons but keep them clickable by JS */
+#btn-up, #btn-down, #btn-left, #btn-right {
+    opacity: 0 !important;
+    height: 1px !important;
+    width: 1px !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+    position: absolute !important;
+    pointer-events: none !important;
 }
 """
 
@@ -184,14 +185,14 @@ def create_app():
                     
                     with gr.Column(scale=1):
                         gr.Markdown("### Controls")
-                        gr.Markdown("*(Use Arrow Keys or WASD to Move)*")
+                        gr.Markdown("*(Use Arrow Keys or WASD to Move. Click on the game area first!)*")
                         
-                        # Hidden Buttons for JS Hook
-                        with gr.Row(visible=True): # Container must be visible for buttons to render in DOM
-                            up_btn = gr.Button("⬆️", elem_id="btn-up", elem_classes=["visually-hidden"])
-                            left_btn = gr.Button("⬅️", elem_id="btn-left", elem_classes=["visually-hidden"])
-                            right_btn = gr.Button("➡️", elem_id="btn-right", elem_classes=["visually-hidden"])
-                            down_btn = gr.Button("⬇️", elem_id="btn-down", elem_classes=["visually-hidden"])
+                        # Hidden Buttons for JS Hook - Clean IDs, hidden via CSS
+                        with gr.Row(): 
+                            up_btn = gr.Button("⬆️", elem_id="btn-up")
+                            left_btn = gr.Button("⬅️", elem_id="btn-left")
+                            right_btn = gr.Button("➡️", elem_id="btn-right")
+                            down_btn = gr.Button("⬇️", elem_id="btn-down")
                         
                         with gr.Group():
                             next_level_btn = gr.Button("🚀 Start / Next Level", variant="primary")
