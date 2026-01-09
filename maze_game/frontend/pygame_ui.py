@@ -49,6 +49,7 @@ class AnimatedButton:
         self.current_scale = 1.0
         self.is_hovered = False
         self.is_pressed = False
+        self.is_selected = False # New state
 
     def check_hover(self, pos):
         self.is_hovered = self.rect.collidepoint(pos)
@@ -63,13 +64,17 @@ class AnimatedButton:
 
     def update(self):
         # Color Transition
-        target = self.hover_color if self.is_hovered else self.base_color
+        # If selected, pulse or stay bright
+        target = self.hover_color if (self.is_hovered or self.is_selected) else self.base_color
         for i in range(3):
             self.current_color[i] += (target[i] - self.current_color[i]) * 0.2
             
         # Scale Transition
-        target_scale = self.hover_scale if self.is_hovered else 1.0
+        target_scale = 1.0
+        if self.is_selected: target_scale = 1.1 # Stay slightly larger if selected
+        elif self.is_hovered: target_scale = 1.05
         if self.is_pressed: target_scale = 0.95
+        
         self.current_scale += (target_scale - self.current_scale) * 0.2
         
         # Apply Scale
@@ -78,20 +83,24 @@ class AnimatedButton:
         self.rect = pygame.Rect(0, 0, w, h)
         self.rect.center = self.original_rect.center
         
-        self.is_pressed = False # Reset click frame
+        self.is_pressed = False
 
     def draw(self, surface, font):
         # Draw Shadow
         shadow_rect = self.rect.copy()
         shadow_rect.y += 4
-        pygame.draw.rect(surface, (0,0,0, 100), shadow_rect, border_radius=8)
+        pygame.draw.rect(surface, (0,0,0, 100), shadow_rect, border_radius=12)
         
         # Draw Main Rect
-        pygame.draw.rect(surface, self.current_color, self.rect, border_radius=8)
+        pygame.draw.rect(surface, self.current_color, self.rect, border_radius=12)
         
-        # Border Glow if hovered
-        if self.is_hovered:
-            pygame.draw.rect(surface, (255,255,255, 100), self.rect, width=2, border_radius=8)
+        # Selection Glow
+        if self.is_selected:
+             # Outer Glow
+             glow_rect = self.rect.inflate(6, 6)
+             pygame.draw.rect(surface, (255, 255, 255, 150), glow_rect, width=3, border_radius=15)
+        elif self.is_hovered:
+            pygame.draw.rect(surface, (255,255,255, 100), self.rect, width=2, border_radius=12)
         
         # Text
         text_surf = font.render(self.text, True, self.text_color)
@@ -110,6 +119,7 @@ class PygameUI:
         self.btn_font = pygame.font.SysFont("Verdana", 18, bold=True)
         self.header_font = pygame.font.SysFont("Verdana", 48, bold=True)
         self.sub_font = pygame.font.SysFont("Verdana", 24)
+        self.desc_font = pygame.font.SysFont("Verdana", 14, italic=True)
         
         self.game = GameState()
         self.state = STATE_MENU
@@ -128,20 +138,25 @@ class PygameUI:
         cx = SCREEN_WIDTH // 2
         
         # MENU
+        # Distinct Colors for Algos
+        col_bfs = (52, 152, 219) # Blue
+        col_dfs = (155, 89, 182) # Purple
+        col_astar = (241, 196, 15) # Gold
+        
         self.menu_buttons = [
-            # Algo Row
-            AnimatedButton("BFS", cx - 120, 300, 80, 40, lambda: self.set_algo("BFS"), (60, 60, 80)),
-            AnimatedButton("DFS", cx, 300, 80, 40, lambda: self.set_algo("DFS"), (60, 60, 80)),
-            AnimatedButton("A*", cx + 120, 300, 80, 40, lambda: self.set_algo("A*"), (60, 60, 80)),
+            # Algo Row - Larger and Spaced
+            AnimatedButton("BFS", cx - 150, 280, 120, 50, lambda: self.set_algo("BFS"), col_bfs),
+            AnimatedButton("DFS", cx, 280, 120, 50, lambda: self.set_algo("DFS"), col_dfs),
+            AnimatedButton("A*", cx + 150, 280, 120, 50, lambda: self.set_algo("A*"), col_astar),
             
             # Level Row
-            AnimatedButton("-", cx - 80, 400, 50, 40, lambda: self.change_level(-1), (80, 50, 50)),
-            AnimatedButton("+", cx + 80, 400, 50, 40, lambda: self.change_level(1), (50, 80, 50)),
+            AnimatedButton("-", cx - 80, 420, 50, 40, lambda: self.change_level(-1), (80, 50, 50)),
+            AnimatedButton("+", cx + 80, 420, 50, 40, lambda: self.change_level(1), (50, 80, 50)),
             
             # Main Actions
-            AnimatedButton("START GAME", cx, 500, 300, 60, self.start_custom_game, COLOR_ACCENT_3, (20,20,20)),
-            AnimatedButton("DAILY CHALLENGE", cx, 580, 300, 60, self.start_daily_menu, COLOR_ACCENT_2, (20,20,20)),
-            AnimatedButton("HALL OF FAME", cx, 660, 300, 60, lambda: self.set_state(STATE_LEADERBOARD), COLOR_ACCENT_1, (20,20,20))
+            AnimatedButton("START GAME", cx, 520, 300, 60, self.start_custom_game, COLOR_ACCENT_3, (20,20,20)),
+            AnimatedButton("DAILY CHALLENGE", cx, 600, 300, 60, self.start_daily_menu, COLOR_ACCENT_2, (20,20,20)),
+            AnimatedButton("HALL OF FAME", cx, 680, 300, 60, lambda: self.set_state(STATE_LEADERBOARD), COLOR_ACCENT_1, (20,20,20))
         ]
         
         # GAME
@@ -248,6 +263,10 @@ class PygameUI:
         elif self.state == STATE_LEADERBOARD: active_btns = self.lb_buttons
         
         for btn in active_btns:
+            # Logic for selection state in menu
+            if self.state == STATE_MENU and btn.text in ["BFS", "DFS", "A*"]:
+                btn.is_selected = (btn.text == self.selected_algo)
+                
             btn.update()
             btn.draw(self.screen, self.btn_font)
             
@@ -259,25 +278,31 @@ class PygameUI:
         title = self.header_font.render("MAZE MASTER", True, COLOR_ACCENT_1)
         subtitle = self.sub_font.render("EVOLUTION", True, COLOR_ACCENT_2)
         
-        tx, ty = SCREEN_WIDTH//2, 120
+        tx, ty = SCREEN_WIDTH//2, 100
         tr_rect = title.get_rect(center=(tx, ty))
         self.screen.blit(title, tr_rect)
         self.screen.blit(subtitle, subtitle.get_rect(center=(tx, ty + 50)))
         
         # Panel for Menu
-        self.draw_glass_panel(SCREEN_WIDTH//2 - 200, 250, 400, 430)
+        self.draw_glass_panel(SCREEN_WIDTH//2 - 250, 220, 500, 550)
         
-        # Selection Indicators
-        t_algo = self.font.render("Algorithm", True, COLOR_TEXT_DIM)
-        self.screen.blit(t_algo, t_algo.get_rect(center=(SCREEN_WIDTH//2, 280)))
+        # 1. Algorithm Select
+        t_algo = self.sub_font.render("CHOOSE YOUR PATHFINDER", True, COLOR_TEXT_DIM)
+        self.screen.blit(t_algo, t_algo.get_rect(center=(SCREEN_WIDTH//2, 240)))
         
-        # Mark selected algo button
-        for btn in self.menu_buttons[:3]: # First 3 are algos
-            if btn.text == self.selected_algo:
-                pygame.draw.rect(self.screen, COLOR_ACCENT_3, btn.rect, width=2, border_radius=8)
+        # Algo Description
+        desc = ""
+        if self.selected_algo == "BFS": desc = "Breadth-First Search: Guarantees the shortest path."
+        elif self.selected_algo == "DFS": desc = "Depth-First Search: Explores deep paths quickly."
+        elif self.selected_algo == "A*": desc = "A-Star: The most efficient smart AI solver."
         
-        t_lvl = self.font.render(f"Level: {self.selected_level}", True, COLOR_ACCENT_3)
-        self.screen.blit(t_lvl, t_lvl.get_rect(center=(SCREEN_WIDTH//2, 380)))
+        d_surf = self.desc_font.render(desc, True, COLOR_ACCENT_3)
+        self.screen.blit(d_surf, d_surf.get_rect(center=(SCREEN_WIDTH//2, 340)))
+        
+        # 2. Level Select
+        t_lvl = self.sub_font.render(f"STARTING LEVEL: {self.selected_level}", True, COLOR_TEXT_DIM)
+        self.screen.blit(t_lvl, t_lvl.get_rect(center=(SCREEN_WIDTH//2, 420)))
+
 
     def draw_game(self):
         # Top Bar
