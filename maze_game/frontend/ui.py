@@ -114,22 +114,38 @@ CUSTOM_CSS = """
 # JavaScript for Keyboard Events
 KEYBOARD_JS = """
 <script>
+console.log("Keyboard listener injected");
 document.addEventListener('keydown', function(event) {
     const keyMap = {
         'ArrowUp': 'btn-up',
-        'w': 'btn-up',
+        'w': 'btn-up', 'W': 'btn-up',
         'ArrowDown': 'btn-down',
-        's': 'btn-down',
+        's': 'btn-down', 'S': 'btn-down',
         'ArrowLeft': 'btn-left',
-        'a': 'btn-left',
+        'a': 'btn-left', 'A': 'btn-left',
         'ArrowRight': 'btn-right',
-        'd': 'btn-right'
+        'd': 'btn-right', 'D': 'btn-right'
     };
     
     if (keyMap[event.key]) {
-        event.preventDefault(); // Prevent scrolling
-        const btn = document.getElementById(keyMap[event.key]);
-        if (btn) btn.click();
+        const targetId = keyMap[event.key];
+        const el = document.getElementById(targetId);
+        if (el) {
+            event.preventDefault(); // Prevent scrolling
+            // Gradio often wraps the button in a div with the elem_id
+            // So we check if the element itself is clickable or if it contains a button
+            if (el.tagName === 'BUTTON') {
+                el.click();
+            } else {
+                const btn = el.querySelector('button');
+                if (btn) {
+                    btn.click();
+                } else {
+                    // Fallback: try clicking the element itself if it's acting as a container
+                    el.click();
+                }
+            }
+        }
     }
 });
 </script>
