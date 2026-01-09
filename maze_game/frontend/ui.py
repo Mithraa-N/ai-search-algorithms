@@ -1,84 +1,252 @@
 import gradio as gr
 from backend.game_state import GameState
 
-def render_board(display_grid):
+# Custom CSS for the board and animations
+CUSTOM_CSS = """
+.maze-board {
+    position: relative;
+    background: #1a1a2e;
+    padding: 10px;
+    border-radius: 12px;
+    box-shadow: 0 0 20px rgba(0,0,0,0.5);
+    margin: 0 auto;
+    width: fit-content;
+}
+
+.maze-table {
+    border-collapse: collapse;
+    border-spacing: 0;
+}
+
+.cell {
+    width: 25px;
+    height: 25px;
+    padding: 0;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+}
+
+/* Wall */
+.cell-1 {
+    background: #16213e;
+    box-shadow: inset 0 0 5px #000;
+}
+
+/* Path */
+.cell-0 {
+    background: #32344a; /* slightly lighter than wall for path */
+}
+
+/* Start */
+.cell-3 {
+    background: #2ecc71;
+    box-shadow: 0 0 10px #2ecc71;
+}
+
+/* Goal */
+.cell-4 {
+    background: #e74c3c;
+    box-shadow: 0 0 10px #e74c3c;
+    animation: glow-red 1.5s infinite alternate;
+}
+
+/* Player */
+.cell-2 {
+    background: #3498db;
+    box-shadow: 0 0 15px #3498db;
+    border-radius: 50%;
+    transform: scale(0.85);
+    animation: bounce 0.5s infinite alternate;
+}
+
+/* AI Hint Path */
+.cell-5 {
+    background: #f1c40f;
+    box-shadow: 0 0 8px #f1c40f;
+    opacity: 0.6;
+    border-radius: 50%;
+    transform: scale(0.4);
+}
+
+@keyframes glow-red {
+    from { box-shadow: 0 0 5px #e74c3c; }
+    to { box-shadow: 0 0 20px #e74c3c; }
+}
+
+@keyframes bounce {
+    from { transform: scale(0.8); }
+    to { transform: scale(0.95); }
+}
+
+.win-overlay {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(0, 0, 0, 0.85);
+    color: #ffd700;
+    padding: 20px 40px;
+    border-radius: 15px;
+    text-align: center;
+    border: 2px solid #ffd700;
+    animation: pop-in 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    z-index: 100;
+    pointer-events: none; /* Let clicks pass through if needed, though usually we want to block */
+}
+
+@keyframes pop-in {
+    0% { transform: translate(-50%, -50%) scale(0); opacity: 0; }
+    100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+}
+
+.win-title {
+    font-size: 2.5em;
+    margin: 0 0 10px 0;
+    text-shadow: 0 0 10px #e67e22;
+}
+
+.win-score {
+    font-size: 1.2em;
+    color: #fff;
+}
+"""
+
+# JavaScript for Keyboard Events
+KEYBOARD_JS = """
+<script>
+document.addEventListener('keydown', function(event) {
+    const keyMap = {
+        'ArrowUp': 'btn-up',
+        'w': 'btn-up',
+        'ArrowDown': 'btn-down',
+        's': 'btn-down',
+        'ArrowLeft': 'btn-left',
+        'a': 'btn-left',
+        'ArrowRight': 'btn-right',
+        'd': 'btn-right'
+    };
+    
+    if (keyMap[event.key]) {
+        event.preventDefault(); // Prevent scrolling
+        const btn = document.getElementById(keyMap[event.key]);
+        if (btn) btn.click();
+    }
+});
+</script>
+"""
+
+def render_board(display_grid, game_over=False, score=0):
     if not display_grid:
-        return "<div>Start a new game</div>"
+        return "<div style='color: white; text-align: center;'>Start a new game</div>"
     
-    html = '<div style="display: flex; justify-content: center; align-items: center; background-color: #222; padding: 10px; border-radius: 8px;">'
-    html += '<table style="border-collapse: collapse; border: 2px solid #555;">'
+    rows = len(display_grid)
+    cols = len(display_grid[0])
     
-    cell_size = "25px"
-    if len(display_grid) > 20: cell_size = "20px"
-    if len(display_grid) > 30: cell_size = "15px"
+    # Adjust cell size based on grid dimension
+    cell_px = 30
+    if rows > 15: cell_px = 25
+    if rows > 25: cell_px = 20
+    
+    # Build HTML Board
+    html = f'<div class="maze-board">'
+    
+    if game_over and score > 0: # Assuming score > 0 means win/completion in this context or we can check a flag
+        # We can pass specific state like "WON" or "LOST"
+        # For now, let's assume if game is over and we are at goal (handled by backend logic mostly), it's a win.
+        # But let's rely on the simple Boolean for now.
+        html += f"""
+        <div class="win-overlay">
+            <div class="win-title">🏆 VICTORY!</div>
+            <div class="win-score">Final Score: {score}</div>
+        </div>
+        """
+        
+    html += '<table class="maze-table">'
     
     for row in display_grid:
         html += '<tr>'
         for cell in row:
-            color = "#ffffff"
-            if cell == 1: color = "#1e1e1e" # Wall
-            elif cell == 2: color = "#3b82f6" # Player
-            elif cell == 3: color = "#22c55e" # Start
-            elif cell == 4: color = "#ef4444" # Goal
-            elif cell == 5: color = "#facc15" # Hint
-            
-            html += f'<td style="width: {cell_size}; height: {cell_size}; background-color: {color}; padding: 0; border: 1px solid #444;"></td>'
+            # cell is integer 0-5
+            html += f'<td class="cell cell-{cell}" style="width: {cell_px}px; height: {cell_px}px;"></td>'
         html += '</tr>'
     html += '</table></div>'
     return html
 
 def create_app():
-    with gr.Blocks(theme=gr.themes.Soft(), title="Python Maze Solver") as app:
+    # Use a darker theme base
+    theme = gr.themes.Soft(
+        primary_hue="blue",
+        neutral_hue="slate",
+    ).set(
+        body_background_fill="#0f172a",
+        block_background_fill="#1e293b",
+        block_border_width="0px",
+        background_fill_primary="#0f172a"
+    )
+
+    with gr.Blocks(theme=theme, css=CUSTOM_CSS, title="Python Maze Solver") as app:
+        
+        # Inject JS for keyboard support
+        gr.HTML(KEYBOARD_JS)
         
         state = gr.State(GameState())
         
-        gr.Markdown("""
-        # 🎮 Interactive AI Maze Game
-        **Instructions**: use buttons to move (or WASD if we could bind keys, but buttons for now). Reach the **Red Goal**!   
-        **Legends**: 🔵 Player | 🟢 Start | 🔴 Goal | ⚫ Wall | 🟡 AI Path
-        """)
+        with gr.Row():
+            gr.Markdown("""
+            # 🎮 Neon Maze Runner
+            **Controls**: Use **Arrow Keys** or **WASD** to move.
+            **Goal**: Reach the <span style='color: #e74c3c; font-weight: bold;'>RED</span> target!
+            """)
         
         with gr.Row():
-            score_board = gr.Textbox(label="Game Stats", value="Moves: 0 | Time: 0s | Score: 0", interactive=False)
+            score_board = gr.Textbox(
+                label="Mission Stats", 
+                value="Moves: 0 | Time: 0s | Score: 0", 
+                interactive=False,
+                elem_classes="stats-box"
+            )
         
         with gr.Row():
             with gr.Column(scale=2):
-                board_display = gr.HTML(label="Maze Board")
+                board_display = gr.HTML(label="Game Board")
             
             with gr.Column(scale=1):
-                with gr.Group():
-                    gr.Markdown("### Controls")
-                    with gr.Row():
-                        up_btn = gr.Button("⬆️ Up")
-                    with gr.Row():
-                        left_btn = gr.Button("⬅️ Left")
-                        right_btn = gr.Button("➡️ Right")
-                    with gr.Row():
-                        down_btn = gr.Button("⬇️ Down")
+                gr.Markdown("### 🕹️ Command Center")
                 
                 with gr.Group():
-                    gr.Markdown("### Game Settings")
-                    difficulty = gr.Dropdown(["Easy", "Medium", "Hard"], value="Medium", label="Difficulty")
-                    new_game_btn = gr.Button("🆕 New Game", variant="primary")
+                    with gr.Row():
+                        up_btn = gr.Button("⬆️",  elem_id="btn-up")
+                    with gr.Row():
+                        left_btn = gr.Button("⬅️", elem_id="btn-left")
+                        right_btn = gr.Button("➡️", elem_id="btn-right")
+                    with gr.Row():
+                        down_btn = gr.Button("⬇️", elem_id="btn-down")
+                
+                gr.Markdown("### ⚙️ System")
+                difficulty = gr.Dropdown(["Easy", "Medium", "Hard"], value="Medium", label="Difficulty")
+                new_game_btn = gr.Button("🆕 New Operation", variant="primary")
                     
-                with gr.Group():
-                    gr.Markdown("### AI Helper")
-                    algo_selector = gr.Dropdown(["BFS", "DFS", "A*"], value="A*", label="Algorithm")
-                    solve_btn = gr.Button("🤖 Show Hint/Path")
-                    status_viz = gr.Textbox(label="Status", interactive=False)
+                gr.Markdown("### 🤖 AI Assist")
+                algo_selector = gr.Dropdown(["BFS", "DFS", "A*"], value="A*", label="Algorithm")
+                solve_btn = gr.Button("🔍 Calculate Path")
+                status_viz = gr.Textbox(label="System Log", interactive=False)
 
-        # Event Handlers
+        # Logic
         
         def start_game(diff, game):
             game = GameState() # Reset
             grid = game.new_game(diff)
-            return render_board(grid), game.get_metrics(), game, "Game Started!"
+            # Reset score display
+            return render_board(grid), game.get_metrics(), game, "Ready."
 
         new_game_btn.click(start_game, inputs=[difficulty, state], outputs=[board_display, score_board, state, status_viz])
         
         def move(direction, game):
             msg, grid = game.move_player(direction)
-            return render_board(grid), game.get_metrics(), game, msg
+            is_over = game.is_game_over
+            # If "Goal Reached" in msg, it's a win
+            win = "Goal Reached" in msg
+            return render_board(grid, game_over=win, score=game.score), game.get_metrics(), game, msg
             
         up_btn.click(move, inputs=[gr.State("Up"), state], outputs=[board_display, score_board, state, status_viz])
         down_btn.click(move, inputs=[gr.State("Down"), state], outputs=[board_display, score_board, state, status_viz])
@@ -87,11 +255,11 @@ def create_app():
         
         def solve(algo, game):
             msg = game.solve(algo)
-            return render_board(game.get_display_grid()), game.get_metrics(), game, msg
+            return render_board(game.get_display_grid(), game_over=game.is_game_over, score=game.score), game.get_metrics(), game, msg
             
         solve_btn.click(solve, inputs=[algo_selector, state], outputs=[board_display, score_board, state, status_viz])
         
-        # Initialize on load
+        # Init
         app.load(start_game, inputs=[difficulty, state], outputs=[board_display, score_board, state, status_viz])
         
     return app
