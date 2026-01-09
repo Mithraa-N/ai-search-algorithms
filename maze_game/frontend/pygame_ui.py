@@ -1,368 +1,370 @@
 import pygame
 import sys
 import time
+import math
+import random
 from backend.game_state import GameState
 
 # --- CONSTANTS & COLORS (NEON THEME) ---
 SCREEN_WIDTH = 1000
 SCREEN_HEIGHT = 800
-FPS = 30
+FPS = 60
 
-# Colors
-COLOR_BG = (15, 23, 42)       # Dark Blue #0f172a
-COLOR_WALL = (22, 33, 62)     # Darker Blue/Grey #16213e
-COLOR_PATH = (50, 52, 74)     # Path Color
-COLOR_START = (46, 204, 113)  # Green #2ecc71
-COLOR_GOAL = (231, 76, 60)    # Red #e74c3c
-COLOR_PLAYER = (52, 152, 219) # Blue #3498db
-COLOR_GHOST = (155, 89, 182)  # Purple #9b59b6
-COLOR_HINT = (241, 196, 15)   # Yellow #f1c40f
-COLOR_TEXT = (255, 255, 255)
+# Palette
+COLOR_BG = (10, 15, 30)       # Deep Blue
+COLOR_ACCENT_1 = (0, 255, 255) # Cyan
+COLOR_ACCENT_2 = (255, 0, 255) # Magenta
+COLOR_ACCENT_3 = (46, 204, 113) # Neon Green
+COLOR_TEXT_MAIN = (255, 255, 255)
+COLOR_TEXT_DIM = (150, 160, 180)
+COLOR_PANEL = (20, 30, 50, 200) # Semi-transparent
 
-# Item Colors
-COLOR_SPIKE = (85, 85, 85)
-COLOR_FOG_TRAP = (127, 140, 141)
-COLOR_TIME_TRAP = (211, 84, 0)
-COLOR_SHIELD = (142, 68, 173)
-COLOR_SPEED = (41, 128, 185)
-COLOR_VISION = (22, 160, 133)
-COLOR_FOG_ACTIVE = (0, 0, 0)
-
-class Button:
-    def __init__(self, text, x, y, w, h, func, color=(70, 70, 70)):
-        self.rect = pygame.Rect(x, y, w, h)
-        self.text = text
-        self.func = func
-        self.color = color
-        self.hover_color = (min(color[0]+30, 255), min(color[1]+30, 255), min(color[2]+30, 255))
-        self.is_hovered = False
-
-    def draw(self, surface, font):
-        col = self.hover_color if self.is_hovered else self.color
-        pygame.draw.rect(surface, col, self.rect, border_radius=5)
-        text_surf = font.render(self.text, True, COLOR_TEXT)
-        text_rect = text_surf.get_rect(center=self.rect.center)
-        surface.blit(text_surf, text_rect)
-
-    def check_hover(self, pos):
-        self.is_hovered = self.rect.collidepoint(pos)
-
-    def check_click(self, pos):
-        if self.is_hovered and self.func:
-            self.func()
-
+# Game Colors
+COLOR_WALL = (20, 30, 60)
+COLOR_PATH = (40, 50, 80)
+COLOR_PLAYER = (0, 255, 255)
+COLOR_GHOST = (180, 80, 255)
+COLOR_START = (0, 255, 127)
+COLOR_GOAL = (255, 50, 80)
+COLOR_HINT = (255, 215, 0)
 
 # State Constants
 STATE_MENU = "MENU"
 STATE_GAME = "GAME"
 STATE_LEADERBOARD = "LEADERBOARD"
 
+class AnimatedButton:
+    def __init__(self, text, x, y, w, h, func, base_color, text_color=COLOR_TEXT_MAIN):
+        self.rect = pygame.Rect(x, y, w, h)
+        self.original_rect = self.rect.copy()
+        self.text = text
+        self.func = func
+        
+        self.base_color = base_color
+        self.hover_color = tuple(min(c + 40, 255) for c in base_color)
+        self.current_color = list(base_color)
+        
+        self.text_color = text_color
+        self.hover_scale = 1.05
+        self.current_scale = 1.0
+        self.is_hovered = False
+        self.is_pressed = False
+
+    def check_hover(self, pos):
+        self.is_hovered = self.rect.collidepoint(pos)
+
+    def check_click(self, pos):
+        if self.is_hovered and self.func:
+            self.click_effect()
+            self.func()
+
+    def click_effect(self):
+        self.current_scale = 0.95
+
+    def update(self):
+        # Color Transition
+        target = self.hover_color if self.is_hovered else self.base_color
+        for i in range(3):
+            self.current_color[i] += (target[i] - self.current_color[i]) * 0.2
+            
+        # Scale Transition
+        target_scale = self.hover_scale if self.is_hovered else 1.0
+        if self.is_pressed: target_scale = 0.95
+        self.current_scale += (target_scale - self.current_scale) * 0.2
+        
+        # Apply Scale
+        w = int(self.original_rect.width * self.current_scale)
+        h = int(self.original_rect.height * self.current_scale)
+        self.rect = pygame.Rect(0, 0, w, h)
+        self.rect.center = self.original_rect.center
+        
+        self.is_pressed = False # Reset click frame
+
+    def draw(self, surface, font):
+        # Draw Shadow
+        shadow_rect = self.rect.copy()
+        shadow_rect.y += 4
+        pygame.draw.rect(surface, (0,0,0, 100), shadow_rect, border_radius=8)
+        
+        # Draw Main Rect
+        pygame.draw.rect(surface, self.current_color, self.rect, border_radius=8)
+        
+        # Border Glow if hovered
+        if self.is_hovered:
+            pygame.draw.rect(surface, (255,255,255, 100), self.rect, width=2, border_radius=8)
+        
+        # Text
+        text_surf = font.render(self.text, True, self.text_color)
+        text_rect = text_surf.get_rect(center=self.rect.center)
+        surface.blit(text_surf, text_rect)
+
 class PygameUI:
     def __init__(self):
         pygame.init()
         self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-        pygame.display.set_caption("Maze Master: Evolution (Pygame Edition)")
+        pygame.display.set_caption("Maze Master: Evolution Premium")
         self.clock = pygame.time.Clock()
         
         # Fonts
-        self.font = pygame.font.SysFont("Arial", 20)
-        self.header_font = pygame.font.SysFont("Arial", 40, bold=True)
-        self.sub_font = pygame.font.SysFont("Arial", 28)
+        self.font = pygame.font.SysFont("Verdana", 16)
+        self.btn_font = pygame.font.SysFont("Verdana", 18, bold=True)
+        self.header_font = pygame.font.SysFont("Verdana", 48, bold=True)
+        self.sub_font = pygame.font.SysFont("Verdana", 24)
         
         self.game = GameState()
         self.state = STATE_MENU
         
-        self.cell_size = 30
-        self.offset_x = 50
-        self.offset_y = 100
-        self.message = "Welcome!"
+        self.message = "Welcome to the Neon Maze."
+        self.bg_offset = 0
         
-        # Menu Options
+        # Menu Selectors
         self.selected_algo = "A*"
         self.selected_level = 1
         
-        # Components
         self._init_buttons()
 
     def _init_buttons(self):
-        # -- MENU BUTTONS --
-        self.btn_algo_bfs = Button("BFS", 350, 300, 80, 40, lambda: self.set_algo("BFS"), (70,70,70))
-        self.btn_algo_dfs = Button("DFS", 450, 300, 80, 40, lambda: self.set_algo("DFS"), (70,70,70))
-        self.btn_algo_astar = Button("A*", 550, 300, 80, 40, lambda: self.set_algo("A*"), (70,70,70))
+        # Helper to center X
+        cx = SCREEN_WIDTH // 2
         
-        self.btn_lvl_dec = Button("-", 400, 400, 40, 40, lambda: self.change_level(-1))
-        self.btn_lvl_inc = Button("+", 540, 400, 40, 40, lambda: self.change_level(1))
+        # MENU
+        self.menu_buttons = [
+            # Algo Row
+            AnimatedButton("BFS", cx - 120, 300, 80, 40, lambda: self.set_algo("BFS"), (60, 60, 80)),
+            AnimatedButton("DFS", cx, 300, 80, 40, lambda: self.set_algo("DFS"), (60, 60, 80)),
+            AnimatedButton("A*", cx + 120, 300, 80, 40, lambda: self.set_algo("A*"), (60, 60, 80)),
+            
+            # Level Row
+            AnimatedButton("-", cx - 80, 400, 50, 40, lambda: self.change_level(-1), (80, 50, 50)),
+            AnimatedButton("+", cx + 80, 400, 50, 40, lambda: self.change_level(1), (50, 80, 50)),
+            
+            # Main Actions
+            AnimatedButton("START GAME", cx, 500, 300, 60, self.start_custom_game, COLOR_ACCENT_3, (20,20,20)),
+            AnimatedButton("DAILY CHALLENGE", cx, 580, 300, 60, self.start_daily_menu, COLOR_ACCENT_2, (20,20,20)),
+            AnimatedButton("HALL OF FAME", cx, 660, 300, 60, lambda: self.set_state(STATE_LEADERBOARD), COLOR_ACCENT_1, (20,20,20))
+        ]
         
-        self.btn_start = Button("START GAME", 350, 500, 300, 60, self.start_custom_game, COLOR_START)
-        self.btn_daily = Button("DAILY CHALLENGE", 350, 580, 300, 60, self.start_daily_menu, (230, 126, 34))
-        self.btn_lb = Button("LEADERBOARD", 350, 660, 300, 60, lambda: self.set_state(STATE_LEADERBOARD), (52, 152, 219))
+        # GAME
+        bx = 820
+        self.game_buttons = [
+            AnimatedButton("Main Menu", bx, 50, 140, 40, lambda: self.set_state(STATE_MENU), (100, 50, 50)),
+            AnimatedButton("Toggle Ghost", bx, 200, 140, 40, self.cmd_toggle_ghost, COLOR_GHOST),
+            AnimatedButton("Hint", bx, 260, 140, 40, self.cmd_hint, COLOR_HINT, (20,20,20)),
+            AnimatedButton("Next Level", bx, 320, 140, 40, self.cmd_next_level, COLOR_ACCENT_3, (20,20,20))
+        ]
         
-        # -- GAME BUTTONS --
-        self.btn_menu_game = Button("Main Menu", 800, 50, 150, 40, lambda: self.set_state(STATE_MENU), (100, 100, 100))
-        self.btn_ghost = Button("Toggle Ghost", 800, 200, 150, 40, self.cmd_toggle_ghost, COLOR_GHOST)
-        self.btn_hint = Button("Hint", 800, 260, 150, 40, self.cmd_hint, COLOR_HINT)
-        self.btn_next = Button("Next Level", 800, 320, 150, 40, self.cmd_next_level, COLOR_START)
-        
-        # -- LEADERBOARD BUTTONS --
-        self.btn_lb_back = Button("Back", 50, 50, 100, 40, lambda: self.set_state(STATE_MENU), (100, 100, 100))
-        self.btn_lb_refresh = Button("Refresh", 800, 50, 100, 40, lambda: None, (52, 152, 219)) # Refresh happens on draw
+        # LEADERBOARD
+        self.lb_buttons = [
+            AnimatedButton("Back", 80, 50, 100, 40, lambda: self.set_state(STATE_MENU), (100, 50, 50))
+        ]
 
-    def set_state(self, state):
-        self.state = state
-
-    def set_algo(self, algo):
-        self.selected_algo = algo
-
-    def change_level(self, delta):
-        self.selected_level = max(1, self.selected_level + delta)
-
+    # --- ACTIONS ---
+    def set_state(self, state): self.state = state
+    def set_algo(self, algo): self.selected_algo = algo
+    def change_level(self, d): self.selected_level = max(1, self.selected_level + d)
+    
     def start_custom_game(self):
-        self.game.load_level(self.selected_level)
         self.game.mode = "Standard"
-        self.game.start_new_game()
-        # Hack to enforce level choice because start_new_game resets it default
         self.game.current_level = self.selected_level
-        self.game.load_level(self.selected_level) 
-        
+        self.game.load_level(self.selected_level)
         self.state = STATE_GAME
-        self.message = f"Level {self.selected_level} Started ({self.selected_algo})"
-
+        self.message = f"Level {self.selected_level} - {self.selected_algo}"
+        
     def start_daily_menu(self):
         msg, _ = self.game.start_daily_challenge()
         self.message = msg
         self.state = STATE_GAME
-
-    def cmd_toggle_ghost(self):
-        msg, _ = self.game.toggle_ghost()
-        self.message = msg
         
-    def cmd_hint(self):
-        msg = self.game.solve(self.selected_algo) # Use selected algo
-        self.message = msg
-
+    def cmd_toggle_ghost(self): self.message, _ = self.game.toggle_ghost()
+    def cmd_hint(self): self.message = self.game.solve(self.selected_algo)
     def cmd_next_level(self):
-        if self.game.is_game_over:
-             msg, _ = self.game.next_level()
-             self.message = msg
-        else:
-             self.message = "Complete the level first!"
+         if self.game.is_game_over: self.message, _ = self.game.next_level()
+         else: self.message = "Complete the level first!"
 
+    # --- INPUT ---
     def handle_input(self):
-        for event in pygame.event.get():
+        events = pygame.event.get()
+        active_btns = []
+        if self.state == STATE_MENU: active_btns = self.menu_buttons
+        elif self.state == STATE_GAME: active_btns = self.game_buttons
+        elif self.state == STATE_LEADERBOARD: active_btns = self.lb_buttons
+        
+        for event in events:
             if event.type == pygame.QUIT:
-                pygame.quit()
-                sys.exit()
-            
-            # Global Key shortcuts
-            if event.type == pygame.KEYDOWN:
-                if self.state == STATE_GAME:
-                    direction = None
-                    if event.key in [pygame.K_UP, pygame.K_w]: direction = "Up"
-                    elif event.key in [pygame.K_DOWN, pygame.K_s]: direction = "Down"
-                    elif event.key in [pygame.K_LEFT, pygame.K_a]: direction = "Left"
-                    elif event.key in [pygame.K_RIGHT, pygame.K_d]: direction = "Right"
-                    
-                    if direction:
-                        msg, _ = self.game.move_player(direction)
-                        self.message = msg
-            
-            # Click Handling
-            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                mouse_pos = event.pos
-                if self.state == STATE_MENU:
-                    self.btn_algo_bfs.check_click(mouse_pos)
-                    self.btn_algo_dfs.check_click(mouse_pos)
-                    self.btn_algo_astar.check_click(mouse_pos)
-                    self.btn_lvl_dec.check_click(mouse_pos)
-                    self.btn_lvl_inc.check_click(mouse_pos)
-                    self.btn_start.check_click(mouse_pos)
-                    self.btn_daily.check_click(mouse_pos)
-                    self.btn_lb.check_click(mouse_pos)
-                elif self.state == STATE_GAME:
-                    self.btn_menu_game.check_click(mouse_pos)
-                    self.btn_ghost.check_click(mouse_pos)
-                    self.btn_hint.check_click(mouse_pos)
-                    self.btn_next.check_click(mouse_pos)
-                elif self.state == STATE_LEADERBOARD:
-                    self.btn_lb_back.check_click(mouse_pos)
-
-            # Hover Update
-            if event.type == pygame.MOUSEMOTION:
-                all_btns = []
-                if self.state == STATE_MENU:
-                     all_btns = [self.btn_algo_bfs, self.btn_algo_dfs, self.btn_algo_astar, 
-                                 self.btn_lvl_dec, self.btn_lvl_inc, self.btn_start, 
-                                 self.btn_daily, self.btn_lb]
-                elif self.state == STATE_GAME:
-                     all_btns = [self.btn_menu_game, self.btn_ghost, self.btn_hint, self.btn_next]
-                elif self.state == STATE_LEADERBOARD:
-                     all_btns = [self.btn_lb_back]
+                pygame.quit(); sys.exit()
                 
-                for btn in all_btns:
-                    btn.check_hover(event.pos)
+            if event.type == pygame.MOUSEMOTION:
+                for btn in active_btns: btn.check_hover(event.pos)
+            
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                for btn in active_btns: btn.check_click(event.pos)
+                
+            if event.type == pygame.KEYDOWN and self.state == STATE_GAME:
+                d = None
+                if event.key in [pygame.K_UP, pygame.K_w]: d = "Up"
+                elif event.key in [pygame.K_DOWN, pygame.K_s]: d = "Down"
+                elif event.key in [pygame.K_LEFT, pygame.K_a]: d = "Left"
+                elif event.key in [pygame.K_RIGHT, pygame.K_d]: d = "Right"
+                if d:
+                    msg, _ = self.game.move_player(d)
+                    self.message = msg
+
+    # --- DRAWING ---
+    def draw_bg_grid(self):
+        self.bg_offset = (self.bg_offset + 0.5) % 40
+        spacing = 40
+        cols = SCREEN_WIDTH // spacing + 2
+        rows = SCREEN_HEIGHT // spacing + 2
+        
+        # Vertical Lines
+        for x in range(cols):
+            x_pos = x * spacing - 10
+            alpha = max(0, 50 - abs(x_pos - SCREEN_WIDTH/2) * 0.1) # Fade edges
+            pygame.draw.line(self.screen, (20, 30, 60), (x_pos, 0), (x_pos, SCREEN_HEIGHT))
+            
+        # Horizontal Lines (Moving)
+        for y in range(rows):
+            y_pos = y * spacing + self.bg_offset - 40
+            pygame.draw.line(self.screen, (20, 30, 60), (0, y_pos), (SCREEN_WIDTH, y_pos))
+
+    def draw_glass_panel(self, x, y, w, h):
+        s = pygame.Surface((w,h), pygame.SRCALPHA)
+        s.fill(COLOR_PANEL)
+        pygame.draw.rect(s, (100, 150, 255, 30), s.get_rect(), width=1) # Border
+        self.screen.blit(s, (x,y))
 
     def draw(self):
         self.screen.fill(COLOR_BG)
+        self.draw_bg_grid()
         
-        if self.state == STATE_MENU:
-            self.draw_menu()
-        elif self.state == STATE_GAME:
-            self.draw_game()
-        elif self.state == STATE_LEADERBOARD:
-            self.draw_leaderboard()
+        if self.state == STATE_MENU: self.draw_menu()
+        elif self.state == STATE_GAME: self.draw_game()
+        elif self.state == STATE_LEADERBOARD: self.draw_leaderboard()
+        
+        # Update all active buttons
+        active_btns = []
+        if self.state == STATE_MENU: active_btns = self.menu_buttons
+        elif self.state == STATE_GAME: active_btns = self.game_buttons
+        elif self.state == STATE_LEADERBOARD: active_btns = self.lb_buttons
+        
+        for btn in active_btns:
+            btn.update()
+            btn.draw(self.screen, self.btn_font)
             
         pygame.display.flip()
 
     def draw_menu(self):
-        # Title
-        title = self.header_font.render("MAZE MASTER: EVOLUTION", True, (0, 255, 255))
-        self.screen.blit(title, (SCREEN_WIDTH//2 - title.get_width()//2, 100))
+        # Pulse Title
+        scale = 1.0 + math.sin(time.time() * 2) * 0.02
+        title = self.header_font.render("MAZE MASTER", True, COLOR_ACCENT_1)
+        subtitle = self.sub_font.render("EVOLUTION", True, COLOR_ACCENT_2)
         
-        # 1. Algorithm Select
-        lbl_algo = self.sub_font.render("Select Algorithm:", True, (200, 200, 200))
-        self.screen.blit(lbl_algo, (350, 260))
+        tx, ty = SCREEN_WIDTH//2, 120
+        tr_rect = title.get_rect(center=(tx, ty))
+        self.screen.blit(title, tr_rect)
+        self.screen.blit(subtitle, subtitle.get_rect(center=(tx, ty + 50)))
         
-        # Highlight Selected
-        for btn in [self.btn_algo_bfs, self.btn_algo_dfs, self.btn_algo_astar]:
-            # Temporarily change color if selected
-            orig_col = btn.color
+        # Panel for Menu
+        self.draw_glass_panel(SCREEN_WIDTH//2 - 200, 250, 400, 430)
+        
+        # Selection Indicators
+        t_algo = self.font.render("Algorithm", True, COLOR_TEXT_DIM)
+        self.screen.blit(t_algo, t_algo.get_rect(center=(SCREEN_WIDTH//2, 280)))
+        
+        # Mark selected algo button
+        for btn in self.menu_buttons[:3]: # First 3 are algos
             if btn.text == self.selected_algo:
-                btn.color = (46, 204, 113) # Green active
-            else:
-                btn.color = (70, 70, 70)
-            btn.draw(self.screen, self.font)
-            btn.color = orig_col # Reset logic (though simplistic) for next frame
-            
-        # 2. Level Select
-        lbl_lvl = self.sub_font.render("Select Level:", True, (200, 200, 200))
-        self.screen.blit(lbl_lvl, (350, 360))
+                pygame.draw.rect(self.screen, COLOR_ACCENT_3, btn.rect, width=2, border_radius=8)
         
-        self.btn_lvl_dec.draw(self.screen, self.font)
-        self.btn_lvl_inc.draw(self.screen, self.font)
-        
-        lvl_val = self.header_font.render(str(self.selected_level), True, (255, 255, 0))
-        self.screen.blit(lvl_val, (480, 400))
-        
-        # 3. Main Buttons
-        self.btn_start.draw(self.screen, self.sub_font)
-        self.btn_daily.draw(self.screen, self.sub_font)
-        self.btn_lb.draw(self.screen, self.sub_font)
+        t_lvl = self.font.render(f"Level: {self.selected_level}", True, COLOR_ACCENT_3)
+        self.screen.blit(t_lvl, t_lvl.get_rect(center=(SCREEN_WIDTH//2, 380)))
 
     def draw_game(self):
-        # Header
+        # Top Bar
+        self.draw_glass_panel(20, 20, 700, 60)
         stats = self.game.get_metrics()
-        stats_surf = self.font.render(stats, True, (200, 200, 200))
-        self.screen.blit(stats_surf, (50, 20))
+        s_surf = self.font.render(stats, True, COLOR_TEXT_MAIN)
+        self.screen.blit(s_surf, (40, 40))
         
         # Maze
         self._draw_maze()
         
-        # Sidebar Buttons
-        self.btn_menu_game.draw(self.screen, self.font)
-        self.btn_ghost.draw(self.screen, self.font)
-        self.btn_hint.text = f"Hint ({self.selected_algo})"
-        self.btn_hint.draw(self.screen, self.font)
-        self.btn_next.draw(self.screen, self.font)
-        
-        # Log
-        msg_surf = self.font.render(f"Log: {self.message}", True, COLOR_HINT)
-        self.screen.blit(msg_surf, (50, SCREEN_HEIGHT - 35))
+        # Log Bar
+        self.draw_glass_panel(20, SCREEN_HEIGHT - 50, 960, 40)
+        msg_surf = self.font.render(f"> {self.message}", True, COLOR_ACCENT_1)
+        self.screen.blit(msg_surf, (40, SCREEN_HEIGHT - 40))
 
-    def draw_leaderboard(self):
-        title = self.header_font.render("Hall of Fame", True, (255, 215, 0))
-        self.screen.blit(title, (SCREEN_WIDTH//2 - title.get_width()//2, 50))
-        
-        self.btn_lb_back.draw(self.screen, self.font)
-        
-        # Fetch Data (Optimized: fetch once or every frame? local json is fast enough for menu)
-        # Display Standard and Daily Side by Side
-        self._draw_lb_column("Daily Challenge", "Daily", 100)
-        self._draw_lb_column("Standard Mode", "Standard", 500)
-
-    def _draw_lb_column(self, title, mode, x_offset):
-        head = self.sub_font.render(title, True, (52, 152, 219))
-        self.screen.blit(head, (x_offset, 120))
-        
-        data = self.game.data_manager.get_leaderboard(mode)
-        y = 170
-        
-        # Headers
-        headers = ["Rank", "Name", "Score", "Time"]
-        h_x = [0, 60, 200, 280]
-        for i, h in enumerate(headers):
-             txt = self.font.render(h, True, (150, 150, 150))
-             self.screen.blit(txt, (x_offset + h_x[i], y))
-        y += 30
-        pygame.draw.line(self.screen, (100,100,100), (x_offset, y), (x_offset+350, y), 2)
-        y += 10
-        
-        for i, entry in enumerate(data[:10]): # Top 10
-             c = (255,255,255)
-             if i == 0: c = (255, 215, 0) # Gold
-             elif i == 1: c = (192, 192, 192) # Silver
-             elif i == 2: c = (205, 127, 50) # Bronze
-             
-             self.screen.blit(self.font.render(f"#{i+1}", True, c), (x_offset+h_x[0], y))
-             self.screen.blit(self.font.render(entry['name'][:10], True, c), (x_offset+h_x[1], y))
-             self.screen.blit(self.font.render(str(entry['score']), True, c), (x_offset+h_x[2], y))
-             self.screen.blit(self.font.render(f"{entry['time']}s", True, c), (x_offset+h_x[3], y))
-             y += 25
-             
     def _draw_maze(self):
-        # Calculate cell size to fit max area
-        max_w = 700
-        max_h = 600
-        cols = self.game.width
-        rows = self.game.height
+        rows, cols = self.game.height, self.game.width
+        max_w, max_h = 700, 600
+        cell_size = min(max_w // cols, max_h // rows, 40)
         
-        size_w = max_w // cols
-        size_h = max_h // rows
-        self.cell_size = min(size_w, size_h, 40) # Cap at 40
+        off_x = 50
+        off_y = 100
         
         grid = self.game.get_display_grid()
         
         for r in range(rows):
             for c in range(cols):
-                x = self.offset_x + c * self.cell_size
-                y = self.offset_y + r * self.cell_size
-                cell_code = grid[r][c]
+                x = off_x + c * cell_size
+                y = off_y + r * cell_size
+                rect = (x, y, cell_size, cell_size)
                 
-                rect = (x, y, self.cell_size, self.cell_size)
+                code = grid[r][c]
+                col = COLOR_PATH
+                if code == 1: col = COLOR_WALL
+                elif code == 10: col = (100, 50, 50) # T
+                elif code == 3: col = (20, 60, 40) # S
+                elif code == 4: col = (60, 20, 20) # G
                 
-                color = COLOR_PATH
-                if cell_code == 1: color = COLOR_WALL
-                elif cell_code == 3: color = COLOR_START
-                elif cell_code == 4: color = COLOR_GOAL
-                elif cell_code == 5: color = COLOR_HINT # Path Hint
-                elif cell_code == 10: color = COLOR_SPIKE
-                elif cell_code == 11: color = COLOR_FOG_TRAP
-                elif cell_code == 12: color = COLOR_TIME_TRAP
-                elif cell_code == 20: color = COLOR_SHIELD
-                elif cell_code == 21: color = COLOR_SPEED
-                elif cell_code == 22: color = COLOR_VISION
-                elif cell_code == 99: color = COLOR_FOG_ACTIVE
+                pygame.draw.rect(self.screen, col, rect)
+                pygame.draw.rect(self.screen, (30,40,70), rect, 1)
                 
-                pygame.draw.rect(self.screen, color, rect)
-                pygame.draw.rect(self.screen, (30,30,40), rect, 1) # Border
-                
-                # Overlays
-                if cell_code == 2: # Player
-                    pygame.draw.circle(self.screen, COLOR_PLAYER, (x + self.cell_size//2, y + self.cell_size//2), int(self.cell_size * 0.4))
-                elif cell_code == 6: # Ghost
-                    # Draw transparent-ish ghost? Pygame minimal alpha
-                    s = pygame.Surface((self.cell_size, self.cell_size), pygame.SRCALPHA)
-                    pygame.draw.circle(s, (*COLOR_GHOST, 100), (self.cell_size//2, self.cell_size//2), int(self.cell_size * 0.3))
-                    self.screen.blit(s, (x,y))
+                # Items
+                cx, cy = x + cell_size//2, y + cell_size//2
+                if code == 2: # Player
+                    # Glow
+                    pygame.draw.circle(self.screen, (0, 100, 100), (cx, cy), cell_size//2 + 4)
+                    pygame.draw.circle(self.screen, COLOR_PLAYER, (cx, cy), cell_size//2 - 2)
+                elif code == 6: # Ghost
+                     s = pygame.Surface((cell_size, cell_size), pygame.SRCALPHA)
+                     pygame.draw.circle(s, (*COLOR_GHOST, 150), (cell_size//2, cell_size//2), cell_size//3)
+                     self.screen.blit(s, (x,y))
+                elif code == 10: self._draw_icon("T", cx, cy, (255, 100, 100))
+                elif code == 20: self._draw_icon("S", cx, cy, COLOR_ACCENT_2)
+                elif code == 5: # Hint
+                    pygame.draw.circle(self.screen, COLOR_HINT, (cx, cy), 4)
 
-                # Icons for items (Simple text for now)
-                icon = None
-                if cell_code == 10: icon = "T"
-                elif cell_code == 12: icon = "X"
-                elif cell_code == 20: icon = "S"
-                
-                if icon:
-                   txt = self.font.render(icon, True, (255,255,255))
-                   self.screen.blit(txt, (x+5, y+2))
+    def _draw_icon(self, char, x, y, color):
+        t = self.font.render(char, True, color)
+        self.screen.blit(t, t.get_rect(center=(x,y)))
+
+    def draw_leaderboard(self):
+        title = self.header_font.render("HALL OF FAME", True, COLOR_HINT)
+        self.screen.blit(title, title.get_rect(center=(SCREEN_WIDTH//2, 60)))
+        
+        self.draw_glass_panel(50, 120, 420, 600)
+        self.draw_glass_panel(530, 120, 420, 600)
+        
+        self._draw_lb_list("Daily Challenge", "Daily", 60)
+        self._draw_lb_list("Standard Mode", "Standard", 540)
+
+    def _draw_lb_list(self, title, mode, x):
+        h = self.sub_font.render(title, True, COLOR_ACCENT_1)
+        self.screen.blit(h, (x + 20, 140))
+        
+        data = self.game.data_manager.get_leaderboard(mode)
+        y = 200
+        for i, d in enumerate(data[:15]):
+            col = COLOR_TEXT_MAIN
+            if i==0: col = (255, 215, 0)
+            elif i==1: col = (200, 200, 220)
+            elif i==2: col = (205, 127, 50)
+            
+            txt = f"#{i+1} {d['name'][:10]} - {d['score']}"
+            s = self.font.render(txt, True, col)
+            self.screen.blit(s, (x + 20, y))
+            y += 30
 
     def run(self):
         while True:
@@ -371,5 +373,5 @@ class PygameUI:
             self.clock.tick(FPS)
 
 if __name__ == "__main__":
-    app = PygameUI()
-    app.run()
+    PygameUI().run()
+
