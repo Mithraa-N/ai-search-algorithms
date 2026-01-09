@@ -107,6 +107,72 @@ class AnimatedButton:
         text_rect = text_surf.get_rect(center=self.rect.center)
         surface.blit(text_surf, text_rect)
 
+
+# Particle System
+class Particle:
+    def __init__(self, x, y, color):
+        self.x = x
+        self.y = y
+        self.color = color
+        self.vx = random.uniform(-2, 2)
+        self.vy = random.uniform(-2, 2)
+        self.lifetime = 1.0 # seconds
+        self.start_time = time.time()
+        self.size = random.randint(2, 5)
+
+    def update(self):
+        self.x += self.vx
+        self.y += self.vy
+        elapsed = time.time() - self.start_time
+        return elapsed < self.lifetime
+
+    def draw(self, surface):
+        elapsed = time.time() - self.start_time
+        alpha = int(255 * (1 - elapsed / self.lifetime))
+        if alpha < 0: alpha = 0
+        s = pygame.Surface((self.size*2, self.size*2), pygame.SRCALPHA)
+        pygame.draw.circle(s, (*self.color, alpha), (self.size, self.size), self.size)
+        surface.blit(s, (self.x - self.size, self.y - self.size))
+
+class InputBox:
+    def __init__(self, x, y, w, h, text=''):
+        self.rect = pygame.Rect(x, y, w, h)
+        self.color_active = COLOR_ACCENT_1
+        self.color_inactive = (50, 50, 70)
+        self.color = self.color_inactive
+        self.text = text
+        self.active = False
+
+    def handle_event(self, event):
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            if self.rect.collidepoint(event.pos):
+                self.active = not self.active
+            else:
+                self.active = False
+            self.color = self.color_active if self.active else self.color_inactive
+        if event.type == pygame.KEYDOWN:
+            if self.active:
+                if event.key == pygame.K_RETURN:
+                    self.active = False
+                elif event.key == pygame.K_BACKSPACE:
+                    self.text = self.text[:-1]
+                else:
+                    if len(self.text) < 15:
+                        self.text += event.unicode
+                self.color = self.color_active if self.active else self.color_inactive
+
+    def draw(self, screen, font):
+        # Background
+        pygame.draw.rect(screen, (10, 20, 40), self.rect, border_radius=8)
+        # Border
+        pygame.draw.rect(screen, self.color, self.rect, 2, border_radius=8)
+        # Text
+        txt_surface = font.render(self.text, True, COLOR_TEXT_MAIN)
+        screen.blit(txt_surface, (self.rect.x+10, self.rect.y+10))
+        if not self.text and not self.active:
+            placeholder = font.render("Enter Name...", True, (100, 100, 120))
+            screen.blit(placeholder, (self.rect.x+10, self.rect.y+10))
+
 class PygameUI:
     def __init__(self):
         pygame.init()
@@ -127,9 +193,18 @@ class PygameUI:
         self.message = "Welcome to the Neon Maze."
         self.bg_offset = 0
         
+        # Particles
+        self.particles = []
+        
+        # Transition
+        self.fade_alpha = 0
+        self.fade_target = 0
+        
         # Menu Selectors
         self.selected_algo = "A*"
         self.selected_level = 1
+        
+        self.name_input = InputBox(SCREEN_WIDTH//2 - 150, 460, 300, 45, self.game.player_name)
         
         self._init_buttons()
 
@@ -150,13 +225,13 @@ class PygameUI:
             AnimatedButton("A*", cx + 150, 280, 120, 50, lambda: self.set_algo("A*"), col_astar),
             
             # Level Row
-            AnimatedButton("-", cx - 80, 420, 50, 40, lambda: self.change_level(-1), (80, 50, 50)),
-            AnimatedButton("+", cx + 80, 420, 50, 40, lambda: self.change_level(1), (50, 80, 50)),
+            AnimatedButton("-", cx - 80, 410, 50, 40, lambda: self.change_level(-1), (80, 50, 50)),
+            AnimatedButton("+", cx + 80, 410, 50, 40, lambda: self.change_level(1), (50, 80, 50)),
             
             # Main Actions
-            AnimatedButton("START GAME", cx, 520, 300, 60, self.start_custom_game, COLOR_ACCENT_3, (20,20,20)),
-            AnimatedButton("DAILY CHALLENGE", cx, 600, 300, 60, self.start_daily_menu, COLOR_ACCENT_2, (20,20,20)),
-            AnimatedButton("HALL OF FAME", cx, 680, 300, 60, lambda: self.set_state(STATE_LEADERBOARD), COLOR_ACCENT_1, (20,20,20))
+            AnimatedButton("START GAME", cx, 550, 300, 60, self.start_custom_game, COLOR_ACCENT_3, (20,20,20)),
+            AnimatedButton("DAILY CHALLENGE", cx, 630, 300, 60, self.start_daily_menu, COLOR_ACCENT_2, (20,20,20)),
+            AnimatedButton("HALL OF FAME", cx, 710, 300, 60, lambda: self.set_state(STATE_LEADERBOARD), COLOR_ACCENT_1, (20,20,20))
         ]
         
         # GAME
@@ -174,27 +249,35 @@ class PygameUI:
         ]
 
     # --- ACTIONS ---
-    def set_state(self, state): self.state = state
+    def set_state(self, state):
+        self.fade_alpha = 0
+        self.state = state
     def set_algo(self, algo): self.selected_algo = algo
     def change_level(self, d): self.selected_level = max(1, self.selected_level + d)
     
     def start_custom_game(self):
+        self.game.player_name = self.name_input.text if self.name_input.text else "Player"
         self.game.mode = "Standard"
         self.game.current_level = self.selected_level
         self.game.load_level(self.selected_level)
-        self.state = STATE_GAME
+        self.set_state(STATE_GAME)
         self.message = f"Level {self.selected_level} - {self.selected_algo}"
         
     def start_daily_menu(self):
+        self.game.player_name = self.name_input.text if self.name_input.text else "Player"
         msg, _ = self.game.start_daily_challenge()
         self.message = msg
-        self.state = STATE_GAME
+        self.set_state(STATE_GAME)
         
     def cmd_toggle_ghost(self): self.message, _ = self.game.toggle_ghost()
     def cmd_hint(self): self.message = self.game.solve(self.selected_algo)
     def cmd_next_level(self):
          if self.game.is_game_over: self.message, _ = self.game.next_level()
          else: self.message = "Complete the level first!"
+    
+    def spawn_particles(self, x, y, color, count=10):
+        for _ in range(count):
+            self.particles.append(Particle(x, y, color))
 
     # --- INPUT ---
     def handle_input(self):
@@ -207,7 +290,10 @@ class PygameUI:
         for event in events:
             if event.type == pygame.QUIT:
                 pygame.quit(); sys.exit()
-                
+            
+            if self.state == STATE_MENU:
+                self.name_input.handle_event(event)
+
             if event.type == pygame.MOUSEMOTION:
                 for btn in active_btns: btn.check_hover(event.pos)
             
@@ -223,6 +309,19 @@ class PygameUI:
                 if d:
                     msg, _ = self.game.move_player(d)
                     self.message = msg
+                    # Visual feedback
+                    grid = self.game.get_display_grid()
+                    # Approx center of player for particles
+                    max_w, max_h = 700, 600
+                    rows, cols = self.game.height, self.game.width
+                    cell_size = min(max_w // cols, max_h // rows, 40)
+                    r, c = self.game.player_pos
+                    px = 50 + c * cell_size + cell_size//2
+                    py = 100 + r * cell_size + cell_size//2
+                    self.spawn_particles(px, py, COLOR_PLAYER, 5)
+                    
+                    if "Goal" in msg or "COMPLETE" in msg:
+                        self.spawn_particles(px, py, COLOR_START, 50)
 
     # --- DRAWING ---
     def draw_bg_grid(self):
@@ -256,7 +355,11 @@ class PygameUI:
         elif self.state == STATE_GAME: self.draw_game()
         elif self.state == STATE_LEADERBOARD: self.draw_leaderboard()
         
-        # Update all active buttons
+        # Particles
+        self.particles = [p for p in self.particles if p.update()]
+        for p in self.particles: p.draw(self.screen)
+        
+        # Buttons Update & Draw
         active_btns = []
         if self.state == STATE_MENU: active_btns = self.menu_buttons
         elif self.state == STATE_GAME: active_btns = self.game_buttons
@@ -278,17 +381,17 @@ class PygameUI:
         title = self.header_font.render("MAZE MASTER", True, COLOR_ACCENT_1)
         subtitle = self.sub_font.render("EVOLUTION", True, COLOR_ACCENT_2)
         
-        tx, ty = SCREEN_WIDTH//2, 100
+        tx, ty = SCREEN_WIDTH//2, 80
         tr_rect = title.get_rect(center=(tx, ty))
         self.screen.blit(title, tr_rect)
         self.screen.blit(subtitle, subtitle.get_rect(center=(tx, ty + 50)))
         
         # Panel for Menu
-        self.draw_glass_panel(SCREEN_WIDTH//2 - 250, 220, 500, 550)
+        self.draw_glass_panel(SCREEN_WIDTH//2 - 270, 200, 540, 580)
         
         # 1. Algorithm Select
         t_algo = self.sub_font.render("CHOOSE YOUR PATHFINDER", True, COLOR_TEXT_DIM)
-        self.screen.blit(t_algo, t_algo.get_rect(center=(SCREEN_WIDTH//2, 240)))
+        self.screen.blit(t_algo, t_algo.get_rect(center=(SCREEN_WIDTH//2, 230)))
         
         # Algo Description
         desc = ""
@@ -297,11 +400,16 @@ class PygameUI:
         elif self.selected_algo == "A*": desc = "A-Star: The most efficient smart AI solver."
         
         d_surf = self.desc_font.render(desc, True, COLOR_ACCENT_3)
-        self.screen.blit(d_surf, d_surf.get_rect(center=(SCREEN_WIDTH//2, 340)))
+        self.screen.blit(d_surf, d_surf.get_rect(center=(SCREEN_WIDTH//2, 330)))
         
         # 2. Level Select
         t_lvl = self.sub_font.render(f"STARTING LEVEL: {self.selected_level}", True, COLOR_TEXT_DIM)
-        self.screen.blit(t_lvl, t_lvl.get_rect(center=(SCREEN_WIDTH//2, 420)))
+        self.screen.blit(t_lvl, t_lvl.get_rect(center=(SCREEN_WIDTH//2, 380)))
+        
+        # 3. Name Input
+        t_name = self.font.render("IDENTITY:", True, COLOR_TEXT_DIM)
+        self.screen.blit(t_name, (SCREEN_WIDTH//2 - 150, 440))
+        self.name_input.draw(self.screen, self.btn_font)
 
 
     def draw_game(self):
@@ -373,6 +481,11 @@ class PygameUI:
         
         self._draw_lb_list("Daily Challenge", "Daily", 60)
         self._draw_lb_list("Standard Mode", "Standard", 540)
+        
+        # Draw buttons (Back)
+        for btn in self.lb_buttons:
+            btn.update()
+            btn.draw(self.screen, self.btn_font)
 
     def _draw_lb_list(self, title, mode, x):
         h = self.sub_font.render(title, True, COLOR_ACCENT_1)
@@ -399,4 +512,3 @@ class PygameUI:
 
 if __name__ == "__main__":
     PygameUI().run()
-
