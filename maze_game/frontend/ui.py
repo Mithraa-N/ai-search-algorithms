@@ -109,46 +109,108 @@ def render_board(display_grid, level_complete=False):
     html += '</table></div>'
     return html
 
+
+# Add Ghost style
+CUSTOM_CSS += """
+.cell-6 { background: #9b59b6; opacity: 0.5; border-radius: 50%; transform: scale(0.6); box-shadow: 0 0 10px #9b59b6; }
+"""
+
+def render_leaderboard(data):
+    if not data:
+        return "<div style='color:white; padding:20px;'>No records yet.</div>"
+    
+    html = """
+    <table style='width:100%; border-collapse:collapse; color:white;'>
+    <tr style='background:#34495e; text-align:left;'>
+        <th style='padding:10px;'>Rank</th>
+        <th style='padding:10px;'>Player</th>
+        <th style='padding:10px;'>Score</th>
+        <th style='padding:10px;'>Time</th>
+        <th style='padding:10px;'>Moves</th>
+        <th style='padding:10px;'>Date</th>
+    </tr>
+    """
+    for i, entry in enumerate(data):
+        bg = "#2c3e50" if i % 2 == 0 else "#22313f"
+        html += f"""
+        <tr style='background:{bg}; border-bottom:1px solid #444;'>
+            <td style='padding:8px;'>#{i+1}</td>
+            <td style='padding:8px; font-weight:bold; color:#3498db;'>{entry['name']}</td>
+            <td style='padding:8px; color:#f1c40f;'>{entry['score']}</td>
+            <td style='padding:8px;'>{entry['time']}s</td>
+            <td style='padding:8px;'>{entry['moves']}</td>
+            <td style='padding:8px; font-size:0.9em; color:#95a5a6;'>{entry['date']}</td>
+        </tr>
+        """
+    html += "</table>"
+    return html
+
 def create_app():
     theme = gr.themes.Soft(primary_hue="blue", neutral_hue="slate").set(
         body_background_fill="#0f172a", block_background_fill="#1e293b",
         block_border_width="0px", background_fill_primary="#0f172a"
     )
 
-    with gr.Blocks(theme=theme, css=CUSTOM_CSS, title="Maze Master Pro") as app:
+    with gr.Blocks(theme=theme, css=CUSTOM_CSS, title="Maze Master: Evolution") as app:
         gr.HTML(KEYBOARD_JS)
         state = gr.State(GameState())
         
         with gr.Row():
-            gr.Markdown("# 🎮 Maze Master: Evolution")
+            gr.Markdown("# 🏆 Maze Master: Evolution")
         
         with gr.Row():
             status_bar = gr.Textbox(label="Mission Status", interactive=False, elem_id="status_box")
         
-        with gr.Row():
-            with gr.Column(scale=2):
-                board_display = gr.HTML(label="Game Board")
-            
-            with gr.Column(scale=1):
-                gr.Markdown("### Controls")
+        with gr.Tabs():
+            with gr.Tab("🎮 Game"):
                 with gr.Row():
-                    up_btn = gr.Button("⬆️", elem_id="btn-up")
+                    name_input = gr.Textbox(label="Player Name", placeholder="Enter your name...", scale=3)
+                    save_name_btn = gr.Button("💾 Set Name", scale=1)
+
                 with gr.Row():
-                    left_btn = gr.Button("⬅️", elem_id="btn-left")
-                    right_btn = gr.Button("➡️", elem_id="btn-right")
-                with gr.Row():
-                    down_btn = gr.Button("⬇️", elem_id="btn-down")
-                
-                with gr.Group():
-                    next_level_btn = gr.Button("🚀 Next Level / Start", variant="primary")
+                    with gr.Column(scale=2):
+                        board_display = gr.HTML(label="Game Board")
                     
-                gr.Markdown("### AI Tools")
-                algo_selector = gr.Dropdown(["BFS", "DFS", "A*"], value="A*", label="Algorithm")
-                solve_btn = gr.Button("🔍 Scan Path")
-                game_msg = gr.Textbox(label="System Log", interactive=False)
+                    with gr.Column(scale=1):
+                        gr.Markdown("### Controls")
+                        with gr.Row():
+                            up_btn = gr.Button("⬆️", elem_id="btn-up")
+                        with gr.Row():
+                            left_btn = gr.Button("⬅️", elem_id="btn-left")
+                            right_btn = gr.Button("➡️", elem_id="btn-right")
+                        with gr.Row():
+                            down_btn = gr.Button("⬇️", elem_id="btn-down")
+                        
+                        with gr.Group():
+                            next_level_btn = gr.Button("🚀 Start / Next Level", variant="primary")
+                            daily_btn = gr.Button("📅 Daily Challenge", variant="secondary")
+                            
+                        gr.Markdown("### Tools")
+                        ghost_btn = gr.Button("👻 Toggle Ghost Replay")
+                        algo_selector = gr.Dropdown(["BFS", "DFS", "A*"], value="A*", label="Algorithm")
+                        solve_btn = gr.Button("🔍 Hint")
+                        game_msg = gr.Textbox(label="System Log", interactive=False)
+
+            with gr.Tab("🏅 Leaderboard"):
+                with gr.Row():
+                    lb_refresh = gr.Button("🔄 Refresh Rankings")
+                with gr.Row():
+                    with gr.Column():
+                        gr.Markdown("### 📅 Daily Challenge Top 50")
+                        daily_lb = gr.HTML()
+                    with gr.Column():
+                        gr.Markdown("### 🌌 All-Time Legends")
+                        normal_lb = gr.HTML()
+
+        # Logic
+        
+        def save_name(name, game):
+            msg = game.set_player_name(name)
+            return game, msg
+        save_name_btn.click(save_name, inputs=[name_input, state], outputs=[state, game_msg])
+        name_input.submit(save_name, inputs=[name_input, state], outputs=[state, game_msg])
 
         def start_or_next(game):
-            # If game over, next level. Else restart.
             if game.is_game_over:
                 msg, grid = game.next_level()
             else:
@@ -156,17 +218,19 @@ def create_app():
                 msg = "New Game Started"
             return render_board(grid), game.get_metrics(), game, msg
 
+        next_level_btn.click(start_or_next, inputs=[state], outputs=[board_display, status_bar, state, game_msg])
+        
         def start_daily(game):
             msg, grid = game.start_daily_challenge()
             return render_board(grid), game.get_metrics(), game, msg
 
-        with gr.Row():
-             with gr.Column(scale=1):
-                 next_level_btn.click(start_or_next, inputs=[state], outputs=[board_display, status_bar, state, game_msg])
-             with gr.Column(scale=1):
-                 daily_btn = gr.Button("📅 Daily Challenge", variant="secondary")
-                 daily_btn.click(start_daily, inputs=[state], outputs=[board_display, status_bar, state, game_msg])
+        daily_btn.click(start_daily, inputs=[state], outputs=[board_display, status_bar, state, game_msg])
         
+        def toggle_ghost(game):
+            msg, grid = game.toggle_ghost()
+            return render_board(grid), game.get_metrics(), game, msg
+        ghost_btn.click(toggle_ghost, inputs=[state], outputs=[board_display, status_bar, state, game_msg])
+
         def move(direction, game):
             msg, grid = game.move_player(direction)
             is_win = game.is_game_over
@@ -179,10 +243,19 @@ def create_app():
         
         def solve(algo, game):
             msg = game.solve(algo)
+            # Pass level_complete to ensure overlay logic works if game over
             return render_board(game.get_display_grid(), level_complete=game.is_game_over), game.get_metrics(), game, msg
-            
         solve_btn.click(solve, inputs=[algo_selector, state], outputs=[board_display, status_bar, state, game_msg])
         
+        def update_lbs(game):
+            d_data = game.data_manager.get_leaderboard("Daily")
+            n_data = game.data_manager.get_leaderboard("Standard")
+            return render_leaderboard(d_data), render_leaderboard(n_data)
+        
+        lb_refresh.click(update_lbs, inputs=[state], outputs=[daily_lb, normal_lb])
+        
+        # Init
         app.load(start_or_next, inputs=[state], outputs=[board_display, status_bar, state, game_msg])
+        app.load(update_lbs, inputs=[state], outputs=[daily_lb, normal_lb])
         
     return app
